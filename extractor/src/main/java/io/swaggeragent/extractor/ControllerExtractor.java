@@ -5,12 +5,10 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.AnnotationExpr;
-import com.github.javaparser.ast.expr.MemberValuePair;
-import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import io.swaggeragent.extractor.model.*;
+import lombok.RequiredArgsConstructor;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -18,41 +16,62 @@ import java.nio.file.Paths;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * Spring Boot Controller에서 API 엔드포인트 정보를 추출
+ * 
+ * JavaParser를 사용하여 Java 소스 코드를 AST(Abstract Syntax Tree)로 파싱하고,
+ * Spring Boot의 @RestController, @Controller 어노테이션이 있는 클래스에서
+ * API 엔드포인트 정보를 추출
+ * 
+ * @author qlqlrh
+ * @version 1.0
+ */
+@RequiredArgsConstructor
 public class ControllerExtractor {
+    // Java 소스 코드 파싱을 위한 JavaParser
     private final JavaParser javaParser;
+    
+    // 추출된 Controller 정보를 저장하는 리스트
     private final List<ControllerInfo> controllers;
 
-    public ControllerExtractor() {
-        this.javaParser = new JavaParser();
-        this.controllers = new ArrayList<>();
-    }
-
+    /**
+     * 지정된 소스 경로에서 Controller 정보를 추출
+     */
     public EndpointsData extract(String sourcePath) throws IOException {
         Path sourceDir = Paths.get(sourcePath);
+        
+        // 디렉토리를 재귀적으로 탐색
         Files.walk(sourceDir)
-            .filter(path -> path.toString().endsWith(".java"))
-            .filter(path -> path.toString().contains("controller"))
-            .forEach(this::processFile);
+            .filter(path -> path.toString().endsWith(".java"))  // .java 파일만 필터링
+            .filter(path -> path.toString().contains("controller"))  // 'controller'가 포함된 파일만 필터링
+            .forEach(this::processFile);  // 각 파일을 처리
         
         return new EndpointsData(controllers);
     }
 
+    /**
+     * JavaParser를 사용하여 파일을 파싱하고, ControllerVisitor를 통해
+     * Controller 클래스와 메서드 정보를 추출
+     */
     private void processFile(Path filePath) {
         try {
+            // 파일을 AST로 파싱
             CompilationUnit cu = javaParser.parse(filePath).getResult().orElse(null);
             if (cu == null) return;
 
+            // AST를 순회하며 Controller 정보 추출
             cu.accept(new ControllerVisitor(filePath), null);
         } catch (Exception e) {
             System.err.println("Error processing file: " + filePath + " - " + e.getMessage());
         }
     }
 
+    /**
+     * AST를 순회하며 Controller 클래스와 메서드 정보를 추출하
+     */
     private class ControllerVisitor extends VoidVisitorAdapter<Void> {
-        private final Path filePath;
-
         public ControllerVisitor(Path filePath) {
-            this.filePath = filePath;
+            // filePath는 현재 사용하지 않지만 향후 확장을 위해 유지
         }
 
         @Override
@@ -63,6 +82,7 @@ public class ControllerExtractor {
                     controllers.add(controller);
                 }
             }
+            // 하위 노드들도 방문
             super.visit(n, arg);
         }
 
@@ -72,23 +92,31 @@ public class ControllerExtractor {
                                ann.getNameAsString().equals("Controller"));
         }
 
+        /**
+         * Controller 클래스에서 정보 추출
+         */
         private ControllerInfo extractController(ClassOrInterfaceDeclaration n) {
+            // 기본 Controller 정보 추출
             String className = n.getNameAsString();
             String packageName = extractPackageName(n);
             String requestMapping = extractRequestMapping(n);
             
             ControllerInfo controller = new ControllerInfo(className, packageName, requestMapping);
             
+            // HTTP 매핑 메서드들 추출
             List<MethodInfo> methods = n.getMethods().stream()
-                .filter(this::isMappingMethod)
-                .map(this::extractMethod)
-                .filter(Objects::nonNull)
+                .filter(this::isMappingMethod)  // HTTP 매핑 어노테이션이 있는 메서드만 필터링
+                .map(this::extractMethod)       // 각 메서드에서 정보 추출
+                .filter(Objects::nonNull)       // null이 아닌 메서드만 유지
                 .collect(Collectors.toList());
             
             controller.setMethods(methods);
             return controller;
         }
 
+        /**
+         * 클래스 패키지명 추출
+         */
         private String extractPackageName(ClassOrInterfaceDeclaration n) {
             return n.findCompilationUnit()
                 .map(cu -> cu.getPackageDeclaration()
@@ -97,6 +125,9 @@ public class ControllerExtractor {
                 .orElse("");
         }
 
+        /**
+         * 클래스의 @RequestMapping 어노테이션 값 추출
+         */
         private String extractRequestMapping(ClassOrInterfaceDeclaration n) {
             return n.getAnnotations().stream()
                 .filter(ann -> ann.getNameAsString().equals("RequestMapping"))
@@ -105,13 +136,18 @@ public class ControllerExtractor {
                 .orElse("");
         }
 
+        /**
+         * 어노테이션의 value 값 추출
+         */
         private String extractAnnotationValue(AnnotationExpr annotation) {
             if (annotation.isSingleMemberAnnotationExpr()) {
+                // @RequestMapping("/api/users") 형태
                 return annotation.asSingleMemberAnnotationExpr()
                     .getMemberValue()
                     .asStringLiteralExpr()
                     .getValue();
             } else if (annotation.isNormalAnnotationExpr()) {
+                // @RequestMapping(value="/api/users") 형태
                 return annotation.asNormalAnnotationExpr()
                     .getPairs().stream()
                     .filter(pair -> pair.getNameAsString().equals("value"))
@@ -122,6 +158,9 @@ public class ControllerExtractor {
             return "";
         }
 
+        /**
+         * 주어진 메서드가 HTTP 매핑 메서드인지 확인
+         */
         private boolean isMappingMethod(MethodDeclaration n) {
             return n.getAnnotations().stream()
                 .anyMatch(ann -> {
@@ -132,7 +171,11 @@ public class ControllerExtractor {
                 });
         }
 
+        /**
+         * HTTP 매핑 메서드에서 정보 추출
+         */
         private MethodInfo extractMethod(MethodDeclaration n) {
+            // 기본 메서드 정보 추출
             String methodName = n.getNameAsString();
             String httpMethod = extractHttpMethod(n);
             String path = extractMethodPath(n);
@@ -146,6 +189,9 @@ public class ControllerExtractor {
             return method;
         }
 
+        /**
+         * 메서드의 HTTP 메서드 추출
+         */
         private String extractHttpMethod(MethodDeclaration n) {
             return n.getAnnotations().stream()
                 .map(AnnotationExpr::getNameAsString)
@@ -155,6 +201,9 @@ public class ControllerExtractor {
                 .orElse("GET");
         }
 
+        /**
+         * 메서드의 경로 추출
+         */
         private String extractMethodPath(MethodDeclaration n) {
             return n.getAnnotations().stream()
                 .filter(ann -> ann.getNameAsString().endsWith("Mapping"))
@@ -167,13 +216,16 @@ public class ControllerExtractor {
             return n.getType().toString();
         }
 
+        /**
+         * 메서드의 파라미터 목록 추출
+         */
         private List<ParameterInfo> extractParameters(MethodDeclaration n) {
             return n.getParameters().stream()
                 .map(param -> {
                     String name = param.getNameAsString();
                     String type = param.getType().toString();
-                    String in = determineParameterIn(param);
-                    boolean required = isParameterRequired(param);
+                    String in = determineParameterIn(param);        // 파라미터 위치 결정
+                    boolean required = isParameterRequired(param);  // 필수 여부 결정
                     
                     ParameterInfo paramInfo = new ParameterInfo(name, type, in, required);
                     paramInfo.setValidationAnnotations(extractValidationAnnotations(param));
@@ -182,6 +234,9 @@ public class ControllerExtractor {
                 .collect(Collectors.toList());
         }
 
+        /**
+         * 파라미터의 위치 결정
+         */
         private String determineParameterIn(com.github.javaparser.ast.body.Parameter param) {
             // @RequestBody가 있으면 body로 분류
             boolean hasRequestBody = param.getAnnotations().stream()
@@ -218,6 +273,9 @@ public class ControllerExtractor {
                 .anyMatch(ann -> ann.getNameAsString().equals("RequestBody"));
         }
 
+        /**
+         * 파라미터의 검증 어노테이션 추출
+         */
         private String[] extractValidationAnnotations(com.github.javaparser.ast.body.Parameter param) {
             return param.getAnnotations().stream()
                 .map(AnnotationExpr::getNameAsString)
@@ -228,6 +286,9 @@ public class ControllerExtractor {
                 .toArray(String[]::new);
         }
 
+        /**
+         * 메서드가 던질 수 있는 예외 목록 추출합
+         */
         private List<String> extractExceptions(MethodDeclaration n) {
             return n.getThrownExceptions().stream()
                 .map(exception -> exception.toString())
