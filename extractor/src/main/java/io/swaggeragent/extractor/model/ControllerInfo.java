@@ -18,8 +18,6 @@ import java.util.Map;
 public class ControllerInfo {
     private String className;
     
-    private String packageName;
-    
     private String requestMapping;
     
     private List<MethodInfo> methods;

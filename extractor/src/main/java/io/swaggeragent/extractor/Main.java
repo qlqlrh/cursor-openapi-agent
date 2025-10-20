@@ -104,14 +104,14 @@ public class Main {
                            (data.getDtoClasses() != null ? data.getDtoClasses().size() : 0);
             
             if (totalItems > 0) {
-                System.out.println("메타데이터 추출이 성공적으로 완료되었습니다!");
-                System.out.println(data.getControllers().size() + "개 컨트롤러에서 " + data.getTotalMethods() + "개 메소드를 찾았습니다");
+                System.out.println("✅ 메타데이터 추출 완료!");
+                System.out.println("📊 결과: 컨트롤러 " + data.getControllers().size() + "개, API 메소드 " + data.getTotalMethods() + "개");
                 if (data.getDtoClasses() != null && !data.getDtoClasses().isEmpty()) {
-                    System.out.println(data.getDtoClasses().size() + "개 DTO 클래스를 찾았습니다");
+                    System.out.println("📊 DTO 클래스: " + data.getDtoClasses().size() + "개");
                 }
-                System.out.println("결과가 저장되었습니다: " + outputFile);
+                System.out.println("💾 저장됨: " + outputFile);
             } else {
-                System.out.println("처리할 수 있는 파일이 없습니다. 파일 경로와 확장자를 확인해주세요.");
+                System.out.println("⚠️  처리할 수 있는 파일이 없습니다.");
             }
             
         } catch (IOException e) {

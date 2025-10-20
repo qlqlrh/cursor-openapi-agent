@@ -18,8 +18,6 @@ import java.util.Map;
 public class DtoInfo {
     private String className;
     
-    private String packageName;
-    
     private List<FieldInfo> fields;
     
     private Map<String, Object> existingAnnotations;

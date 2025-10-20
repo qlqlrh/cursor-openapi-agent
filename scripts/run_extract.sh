@@ -105,13 +105,3 @@ else
       --src="$SOURCE_PATH" \
       --out="$OUTPUT_FILE"
 fi
-
-echo "메타데이터 추출이 성공적으로 완료되었습니다!"
-if [ -f "$OUTPUT_FILE" ]; then
-    echo "$(jq '.controllers | length' "$OUTPUT_FILE")개 컨트롤러에서 $(jq '.totalMethods' "$OUTPUT_FILE")개 메소드를 찾았습니다"
-    if [ "$FILES_MODE" = true ] && [ "$(jq '.dtoClasses | length' "$OUTPUT_FILE" 2>/dev/null || echo 0)" -gt 0 ]; then
-        echo "$(jq '.dtoClasses | length' "$OUTPUT_FILE")개 DTO 클래스를 찾았습니다"
-    fi
-fi
-echo "결과가 저장되었습니다: $OUTPUT_FILE"
-echo "✅ 추출 완료!"

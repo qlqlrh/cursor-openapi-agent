@@ -56,17 +56,28 @@ public class ControllerExtractor {
     }
 
     /**
-     * 선택된 파일들에서 Controller 정보를 추출
+     * 선택된 파일들에서 Controller와 DTO 정보를 통합 추출
+     * - 컨트롤러 파일: API 엔드포인트 정보 추출
+     * - DTO 파일: 데이터 모델 정보 추출
+     * - 혼합 파일: 컨트롤러와 DTO 모두 처리
      */
     public EndpointsInfo extractFromFiles(List<String> filePaths) throws IOException {
         int processedFiles = 0;
         int errorFiles = 0;
+        int controllerFiles = 0;
+        int dtoFiles = 0;
         
         for (String filePath : filePaths) {
             Path path = Paths.get(filePath);
             if (Files.exists(path) && path.toString().endsWith(".java")) {
-                processFile(path);
-                processedFiles++;
+                FileProcessResult result = processFileWithResult(path);
+                if (result.isSuccess()) {
+                    processedFiles++;
+                    if (result.isControllerFile()) controllerFiles++;
+                    if (result.isDtoFile()) dtoFiles++;
+                } else {
+                    errorFiles++;
+                }
             } else {
                 System.err.println("파일을 찾을 수 없거나 Java 파일이 아닙니다: " + filePath);
                 errorFiles++;
@@ -79,6 +90,36 @@ public class ControllerExtractor {
         }
         
         return EndpointsInfo.ofControllersAndDtos(controllers, dtoClasses);
+    }
+
+    /**
+     * 파일 처리 결과를 담는 클래스
+     */
+    private static class FileProcessResult {
+        private final boolean success;
+        private final boolean controllerFile;
+        private final boolean dtoFile;
+        private final String errorMessage;
+        
+        public FileProcessResult(boolean success, boolean controllerFile, boolean dtoFile, String errorMessage) {
+            this.success = success;
+            this.controllerFile = controllerFile;
+            this.dtoFile = dtoFile;
+            this.errorMessage = errorMessage;
+        }
+        
+        public boolean isSuccess() { return success; }
+        public boolean isControllerFile() { return controllerFile; }
+        public boolean isDtoFile() { return dtoFile; }
+        public String getErrorMessage() { return errorMessage; }
+        
+        public static FileProcessResult success(boolean controllerFile, boolean dtoFile) {
+            return new FileProcessResult(true, controllerFile, dtoFile, null);
+        }
+        
+        public static FileProcessResult error(String errorMessage) {
+            return new FileProcessResult(false, false, false, errorMessage);
+        }
     }
 
     /**
@@ -100,6 +141,36 @@ public class ControllerExtractor {
             }
         } catch (Exception e) {
             System.err.println("Error processing file: " + filePath + " - " + e.getMessage());
+        }
+    }
+
+    /**
+     * 파일 처리 결과를 반환하는 개선된 메서드
+     */
+    private FileProcessResult processFileWithResult(Path filePath) {
+        try {
+            // 파일을 AST로 파싱
+            CompilationUnit cu = javaParser.parse(filePath).getResult().orElse(null);
+            if (cu == null) {
+                return FileProcessResult.error("파일을 파싱할 수 없습니다: " + filePath);
+            }
+
+            boolean isDto = isDtoFile(filePath);
+            boolean isController = false;
+            
+            // 파일명으로 DTO 클래스인지 확인
+            if (isDto) {
+                cu.accept(new DtoVisitor(filePath), null);
+            } else {
+                // AST를 순회하며 Controller 정보 추출
+                cu.accept(new ControllerVisitor(filePath), null);
+                isController = true; // 컨트롤러 파일로 처리됨
+            }
+            
+            return FileProcessResult.success(isController, isDto);
+            
+        } catch (Exception e) {
+            return FileProcessResult.error("파일 처리 중 오류 발생: " + filePath + " - " + e.getMessage());
         }
     }
 
@@ -151,12 +222,10 @@ public class ControllerExtractor {
         private ControllerInfo extractController(ClassOrInterfaceDeclaration n) {
             // 기본 Controller 정보 추출
             String className = n.getNameAsString();
-            String packageName = extractPackageName(n);
             String requestMapping = extractRequestMapping(n);
             
             ControllerInfo controller = ControllerInfo.builder()
                 .className(className)
-                .packageName(packageName)
                 .requestMapping(requestMapping)
                 .build();
             
@@ -175,16 +244,6 @@ public class ControllerExtractor {
             return controller;
         }
 
-        /**
-         * 클래스 패키지명 추출
-         */
-        private String extractPackageName(ClassOrInterfaceDeclaration n) {
-            return n.findCompilationUnit()
-                .map(cu -> cu.getPackageDeclaration()
-                    .map(pkg -> pkg.getNameAsString())
-                    .orElse(""))
-                .orElse("");
-        }
 
         /**
          * 클래스의 @RequestMapping 어노테이션 값 추출
@@ -453,31 +512,17 @@ public class ControllerExtractor {
                 .anyMatch(dto -> dto.getClassName().equals(className));
             
             if (!exists) {
-                // 패키지명 추출
-                String packageName = method.findCompilationUnit()
-                    .map(cu -> cu.getPackageDeclaration()
-                        .map(pkg -> pkg.getNameAsString())
-                        .orElse(""))
-                    .orElse("");
-                
                 // 파일 경로 찾기
-                String filePath = findDtoFile(className, packageName);
+                String filePath = findDtoFileByClassName(className);
                 
-                // 패키지명으로 찾지 못했으면 클래스명만으로 검색
+                // 파일을 찾지 못한 경우 추정 경로 사용
                 if (filePath == null || !Files.exists(Paths.get(filePath))) {
-                    filePath = findDtoFileByClassName(className);
-                }
-                
-                // 여전히 찾지 못했으면 추정 경로 사용
-                if (filePath == null) {
-                    String packagePath = packageName.replace('.', '/');
-                    filePath = "src/main/java/" + packagePath + "/" + className + ".java";
+                    filePath = "src/main/java/com/example/dto/" + className + ".java";
                 }
                 
                 // DTO 정보 생성
                 DtoInfo dto = DtoInfo.builder()
                     .className(className)
-                    .packageName(packageName)
                     .fields(new ArrayList<>())
                     .existingAnnotations(new HashMap<>())
                     .filePath(filePath)
@@ -795,12 +840,10 @@ public class ControllerExtractor {
         private DtoInfo extractDto(ClassOrInterfaceDeclaration n) {
             // 기본 DTO 정보 추출
             String className = n.getNameAsString();
-            String packageName = extractPackageName(n);
             String filePathStr = filePath.toString();
             
             DtoInfo dto = DtoInfo.builder()
                 .className(className)
-                .packageName(packageName)
                 .filePath(filePathStr)
                 .build();
             
@@ -814,16 +857,6 @@ public class ControllerExtractor {
             return dto;
         }
 
-        /**
-         * 클래스 패키지명 추출
-         */
-        private String extractPackageName(ClassOrInterfaceDeclaration n) {
-            return n.findCompilationUnit()
-                .map(cu -> cu.getPackageDeclaration()
-                    .map(pkg -> pkg.getNameAsString())
-                    .orElse(""))
-                .orElse("");
-        }
 
         /**
          * DTO 필드에서 정보 추출
