@@ -50,6 +50,22 @@ public class ControllerExtractor {
     }
 
     /**
+     * 선택된 파일들에서 Controller 정보를 추출
+     */
+    public EndpointsData extractFromFiles(List<String> filePaths) throws IOException {
+        for (String filePath : filePaths) {
+            Path path = Paths.get(filePath);
+            if (Files.exists(path) && path.toString().endsWith(".java")) {
+                processFile(path);
+            } else {
+                System.err.println("파일을 찾을 수 없거나 Java 파일이 아닙니다: " + filePath);
+            }
+        }
+        
+        return new EndpointsData(controllers);
+    }
+
+    /**
      * JavaParser를 사용하여 파일을 파싱하고, ControllerVisitor를 통해
      * Controller 클래스와 메서드 정보를 추출
      */
