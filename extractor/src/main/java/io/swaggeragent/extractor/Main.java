@@ -2,7 +2,7 @@ package io.swaggeragent.extractor;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
-import io.swaggeragent.extractor.model.EndpointsData;
+import io.swaggeragent.extractor.model.EndpointsInfo;
 
 import java.io.File;
 import java.io.IOException;
@@ -85,7 +85,7 @@ public class Main {
 
         try {
             ControllerExtractor extractor = new ControllerExtractor(new com.github.javaparser.JavaParser(), new ArrayList<>());
-            EndpointsData data;
+            EndpointsInfo data;
             
             if (filesMode) {
                 // 선택적 파일 모드

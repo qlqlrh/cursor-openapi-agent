@@ -37,7 +37,7 @@ public class ControllerExtractor {
     /**
      * 지정된 소스 경로에서 Controller 정보를 추출
      */
-    public EndpointsData extract(String sourcePath) throws IOException {
+    public EndpointsInfo extract(String sourcePath) throws IOException {
         Path sourceDir = Paths.get(sourcePath);
         
         // 디렉토리를 재귀적으로 탐색
@@ -46,13 +46,13 @@ public class ControllerExtractor {
             .filter(path -> path.toString().contains("controller"))  // 'controller'가 포함된 파일만 필터링
             .forEach(this::processFile);  // 각 파일을 처리
         
-        return new EndpointsData(controllers);
+        return EndpointsInfo.ofControllers(controllers);
     }
 
     /**
      * 선택된 파일들에서 Controller 정보를 추출
      */
-    public EndpointsData extractFromFiles(List<String> filePaths) throws IOException {
+    public EndpointsInfo extractFromFiles(List<String> filePaths) throws IOException {
         for (String filePath : filePaths) {
             Path path = Paths.get(filePath);
             if (Files.exists(path) && path.toString().endsWith(".java")) {
@@ -62,7 +62,7 @@ public class ControllerExtractor {
             }
         }
         
-        return new EndpointsData(controllers);
+        return EndpointsInfo.ofControllers(controllers);
     }
 
     /**
@@ -117,7 +117,11 @@ public class ControllerExtractor {
             String packageName = extractPackageName(n);
             String requestMapping = extractRequestMapping(n);
             
-            ControllerInfo controller = new ControllerInfo(className, packageName, requestMapping);
+            ControllerInfo controller = ControllerInfo.builder()
+                .className(className)
+                .packageName(packageName)
+                .requestMapping(requestMapping)
+                .build();
             
             // HTTP 매핑 메서드들 추출
             List<MethodInfo> methods = n.getMethods().stream()
@@ -196,11 +200,15 @@ public class ControllerExtractor {
             String httpMethod = extractHttpMethod(n);
             String path = extractMethodPath(n);
             
-            MethodInfo method = new MethodInfo(methodName, httpMethod, path);
-            method.setLineNumber(n.getBegin().map(pos -> pos.line).orElse(0));
-            method.setReturnType(extractReturnType(n));
-            method.setParameters(extractParameters(n));
-            method.setExceptions(extractExceptions(n));
+            MethodInfo method = MethodInfo.builder()
+                .methodName(methodName)
+                .httpMethod(httpMethod)
+                .path(path)
+                .lineNumber(n.getBegin().map(pos -> pos.line).orElse(0))
+                .returnType(extractReturnType(n))
+                .parameters(extractParameters(n))
+                .exceptions(extractExceptions(n))
+                .build();
             
             return method;
         }
@@ -243,8 +251,13 @@ public class ControllerExtractor {
                     String in = determineParameterIn(param);        // 파라미터 위치 결정
                     boolean required = isParameterRequired(param);  // 필수 여부 결정
                     
-                    ParameterInfo paramInfo = new ParameterInfo(name, type, in, required);
-                    paramInfo.setValidationAnnotations(extractValidationAnnotations(param));
+                    ParameterInfo paramInfo = ParameterInfo.builder()
+                        .name(name)
+                        .type(type)
+                        .in(in)
+                        .required(required)
+                        .validationAnnotations(extractValidationAnnotations(param))
+                        .build();
                     return paramInfo;
                 })
                 .collect(Collectors.toList());
