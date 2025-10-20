@@ -59,13 +59,23 @@ public class ControllerExtractor {
      * 선택된 파일들에서 Controller 정보를 추출
      */
     public EndpointsInfo extractFromFiles(List<String> filePaths) throws IOException {
+        int processedFiles = 0;
+        int errorFiles = 0;
+        
         for (String filePath : filePaths) {
             Path path = Paths.get(filePath);
             if (Files.exists(path) && path.toString().endsWith(".java")) {
                 processFile(path);
+                processedFiles++;
             } else {
                 System.err.println("파일을 찾을 수 없거나 Java 파일이 아닙니다: " + filePath);
+                errorFiles++;
             }
+        }
+        
+        // 처리된 파일이 없으면 빈 결과 반환
+        if (processedFiles == 0) {
+            return EndpointsInfo.ofControllersAndDtos(new ArrayList<>(), new ArrayList<>());
         }
         
         return EndpointsInfo.ofControllersAndDtos(controllers, dtoClasses);
@@ -381,7 +391,7 @@ public class ControllerExtractor {
                     .anyMatch(ann -> ann.getNameAsString().equals("RequestBody")))
                 .forEach(param -> {
                     String typeName = param.getType().toString();
-                    String className = extractClassNameFromType(typeName);
+                    String className = TypeParser.parseType(typeName, TypeParser.ParseMode.CLASS_NAME_ONLY).getBaseType();
                     if (isDtoClassName(className)) {
                         addDtoIfNotExists(className, method);
                     }
@@ -395,7 +405,7 @@ public class ControllerExtractor {
             String returnType = method.getType().toString();
             
             // 직접 반환 타입 확인
-            String className = extractClassNameFromType(returnType);
+            String className = TypeParser.parseType(returnType, TypeParser.ParseMode.CLASS_NAME_ONLY).getBaseType();
             if (isDtoClassName(className)) {
                 addDtoIfNotExists(className, method);
             }
@@ -408,15 +418,10 @@ public class ControllerExtractor {
          * 예: List<UserDto>, ResponseEntity<UserDto>, Optional<List<UserDto>> 등
          */
         private void extractDtosFromGenericType(String typeName, MethodDeclaration method) {
-            if (!typeName.contains("<") || !typeName.contains(">")) {
-                return;
-            }
+            TypeParseResult result = TypeParser.parseType(typeName, TypeParser.ParseMode.DTO_EXTRACTION);
             
-            // 제네릭 타입들 추출
-            List<String> genericTypes = extractGenericTypes(typeName);
-            
-            for (String genericType : genericTypes) {
-                String className = extractClassNameFromType(genericType);
+            for (String genericType : result.getGenericTypes()) {
+                String className = TypeParser.parseType(genericType, TypeParser.ParseMode.CLASS_NAME_ONLY).getBaseType();
                 if (isDtoClassName(className)) {
                     addDtoIfNotExists(className, method);
                 }
@@ -426,54 +431,6 @@ public class ControllerExtractor {
             }
         }
 
-        /**
-         * 제네릭 타입 문자열에서 모든 제네릭 타입들을 추출
-         * 예: "List<UserDto>" -> ["UserDto"]
-         * 예: "ResponseEntity<List<UserDto>>" -> ["List<UserDto>", "UserDto"]
-         */
-        private List<String> extractGenericTypes(String typeName) {
-            List<String> genericTypes = new ArrayList<>();
-            
-            // < 와 > 사이의 내용 추출
-            int start = typeName.indexOf('<');
-            int end = typeName.lastIndexOf('>');
-            
-            if (start != -1 && end != -1 && start < end) {
-                String content = typeName.substring(start + 1, end);
-                
-                // 쉼표로 구분된 타입들 처리
-                String[] types = content.split(",");
-                for (String type : types) {
-                    type = type.trim();
-                    if (!type.isEmpty()) {
-                        genericTypes.add(type);
-                    }
-                }
-            }
-            
-            return genericTypes;
-        }
-
-        /**
-         * 타입 문자열에서 클래스명 추출
-         */
-        private String extractClassNameFromType(String typeName) {
-            // 제네릭 타입 처리 (List<UserDto> -> UserDto)
-            if (typeName.contains("<") && typeName.contains(">")) {
-                int start = typeName.lastIndexOf('<') + 1;
-                int end = typeName.lastIndexOf('>');
-                if (start > 0 && end > start) {
-                    typeName = typeName.substring(start, end);
-                }
-            }
-            
-            // 패키지명 제거 (com.example.dto.UserDto -> UserDto)
-            if (typeName.contains(".")) {
-                return typeName.substring(typeName.lastIndexOf('.') + 1);
-            }
-            
-            return typeName;
-        }
 
         /**
          * 클래스명이 DTO 패턴인지 확인
@@ -643,6 +600,166 @@ public class ControllerExtractor {
     }
 
     /**
+     * 타입 파싱 유틸리티 클래스
+     * - 제네릭 타입 파싱, 패키지명 제거, 타입 정규화 등 통합 처리
+     */
+    private static class TypeParser {
+        
+        /**
+         * 타입 파싱 모드
+         */
+        public enum ParseMode {
+            DTO_EXTRACTION,    // DTO 클래스 추출용
+            FIELD_NORMALIZATION, // 필드 타입 정규화용
+            CLASS_NAME_ONLY     // 클래스명만 추출용
+        }
+        
+        /**
+         * 통합 타입 파싱 메서드
+         */
+        public static TypeParseResult parseType(String typeName, ParseMode mode) {
+            if (typeName == null || typeName.isEmpty()) {
+                return new TypeParseResult("Object", new ArrayList<>());
+            }
+            
+            // 제네릭 타입 처리
+            if (typeName.contains("<") && typeName.contains(">")) {
+                return parseGenericType(typeName, mode);
+            }
+            
+            // 단순 타입 처리
+            return parseSimpleType(typeName, mode);
+        }
+        
+        /**
+         * 제네릭 타입 파싱
+         */
+        private static TypeParseResult parseGenericType(String typeName, ParseMode mode) {
+            String baseType = typeName.substring(0, typeName.indexOf('<'));
+            String genericContent = typeName.substring(typeName.indexOf('<') + 1, typeName.lastIndexOf('>'));
+            
+            // 제네릭 타입들 추출
+            List<String> genericTypes = extractGenericTypes(genericContent);
+            
+            // 모드에 따른 처리
+            switch (mode) {
+                case DTO_EXTRACTION:
+                    return new TypeParseResult(baseType, genericTypes);
+                    
+                case FIELD_NORMALIZATION:
+                    return normalizeGenericType(baseType, genericTypes);
+                    
+                case CLASS_NAME_ONLY:
+                    return new TypeParseResult(extractClassName(baseType), genericTypes);
+                    
+                default:
+                    return new TypeParseResult(baseType, genericTypes);
+            }
+        }
+        
+        /**
+         * 단순 타입 파싱
+         */
+        private static TypeParseResult parseSimpleType(String typeName, ParseMode mode) {
+            String normalizedType = typeName;
+            
+            // 패키지명 제거
+            if (typeName.contains(".")) {
+                normalizedType = typeName.substring(typeName.lastIndexOf('.') + 1);
+            }
+            
+            // 모드별 추가 처리
+            if (mode == ParseMode.FIELD_NORMALIZATION) {
+                normalizedType = normalizeSimpleType(typeName);
+            }
+            
+            return new TypeParseResult(normalizedType, new ArrayList<>());
+        }
+        
+        /**
+         * 제네릭 타입 정규화
+         */
+        private static TypeParseResult normalizeGenericType(String baseType, List<String> genericTypes) {
+            String normalizedBase = normalizeSimpleType(baseType);
+            
+            if (normalizedBase.equals("List") || normalizedBase.equals("Set")) {
+                String genericType = genericTypes.isEmpty() ? "Object" : 
+                    parseType(genericTypes.get(0), ParseMode.CLASS_NAME_ONLY).getBaseType();
+                return new TypeParseResult(normalizedBase + "<" + genericType + ">", genericTypes);
+            }
+            
+            if (normalizedBase.equals("Map")) {
+                return new TypeParseResult("Map<String, Object>", genericTypes);
+            }
+            
+            if (normalizedBase.equals("Optional")) {
+                String genericType = genericTypes.isEmpty() ? "Object" : 
+                    parseType(genericTypes.get(0), ParseMode.CLASS_NAME_ONLY).getBaseType();
+                return new TypeParseResult("Optional<" + genericType + ">", genericTypes);
+            }
+            
+            return new TypeParseResult(normalizedBase, genericTypes);
+        }
+        
+        /**
+         * 단순 타입 정규화
+         */
+        private static String normalizeSimpleType(String typeName) {
+            if (typeName.startsWith("java.lang.")) {
+                return typeName.substring(10);
+            }
+            if (typeName.startsWith("java.util.")) {
+                return typeName.substring(10);
+            }
+            if (typeName.contains(".")) {
+                return typeName.substring(typeName.lastIndexOf('.') + 1);
+            }
+            return typeName;
+        }
+        
+        /**
+         * 클래스명만 추출
+         */
+        private static String extractClassName(String typeName) {
+            if (typeName.contains(".")) {
+                return typeName.substring(typeName.lastIndexOf('.') + 1);
+            }
+            return typeName;
+        }
+        
+        /**
+         * 제네릭 타입들 추출
+         */
+        private static List<String> extractGenericTypes(String content) {
+            List<String> types = new ArrayList<>();
+            String[] parts = content.split(",");
+            for (String part : parts) {
+                String trimmed = part.trim();
+                if (!trimmed.isEmpty()) {
+                    types.add(trimmed);
+                }
+            }
+            return types;
+        }
+    }
+    
+    /**
+     * 타입 파싱 결과 클래스
+     */
+    private static class TypeParseResult {
+        private final String baseType;
+        private final List<String> genericTypes;
+        
+        public TypeParseResult(String baseType, List<String> genericTypes) {
+            this.baseType = baseType;
+            this.genericTypes = genericTypes;
+        }
+        
+        public String getBaseType() { return baseType; }
+        public List<String> getGenericTypes() { return genericTypes; }
+    }
+
+    /**
      * AST를 순회하며 DTO 클래스와 필드 정보 추출
      */
     private class DtoVisitor extends VoidVisitorAdapter<Void> {
@@ -710,6 +827,7 @@ public class ControllerExtractor {
 
         /**
          * DTO 필드에서 정보 추출
+         * - 필드명, 타입, 검증 어노테이션, 설명, 필수 여부 등을 추출
          */
         private FieldInfo extractField(com.github.javaparser.ast.body.FieldDeclaration field) {
             if (field.getVariables().isEmpty()) {
@@ -718,27 +836,114 @@ public class ControllerExtractor {
             
             com.github.javaparser.ast.body.VariableDeclarator variable = field.getVariables().get(0);
             String fieldName = variable.getNameAsString();
-            String fieldType = field.getElementType().toString();
+            String fieldType = TypeParser.parseType(field.getElementType().toString(), TypeParser.ParseMode.FIELD_NORMALIZATION).getBaseType();
             
-            // 검증 어노테이션 추출
-            String[] validationAnnotations = field.getAnnotations().stream()
+            // 검증 어노테이션 추출 (확장된 목록)
+            List<String> validationAnnotations = field.getAnnotations().stream()
                 .map(AnnotationExpr::getNameAsString)
-                .filter(name -> name.equals("Valid") || name.equals("NotNull") || 
-                              name.equals("Size") || name.equals("NotBlank") ||
-                              name.equals("Email") || name.equals("Pattern"))
-                .toArray(String[]::new);
+                .filter(this::isValidationAnnotation)
+                .collect(Collectors.toList());
             
-            // 필수 여부 확인
-            boolean required = field.getAnnotations().stream()
-                .anyMatch(ann -> ann.getNameAsString().equals("NotNull"));
+            // 필수 여부 확인 (다양한 어노테이션 체크)
+            boolean required = isFieldRequired(field);
+            
+            // 필드 설명 추출 (Javadoc, @Schema, @ApiModelProperty 등)
+            String description = extractFieldDescription(field);
             
             return FieldInfo.builder()
                 .name(fieldName)
                 .type(fieldType)
-                .validationAnnotations(validationAnnotations)
+                .validationAnnotations(validationAnnotations.toArray(new String[0]))
+                .description(description)
                 .required(required)
                 .build();
         }
+
+
+        /**
+         * 검증 어노테이션인지 확인
+         */
+        private boolean isValidationAnnotation(String annotationName) {
+            return annotationName.equals("Valid") || 
+                   annotationName.equals("NotNull") || 
+                   annotationName.equals("NotBlank") ||
+                   annotationName.equals("NotEmpty") ||
+                   annotationName.equals("Size") || 
+                   annotationName.equals("Min") ||
+                   annotationName.equals("Max") ||
+                   annotationName.equals("Email") || 
+                   annotationName.equals("Pattern") ||
+                   annotationName.equals("DecimalMin") ||
+                   annotationName.equals("DecimalMax") ||
+                   annotationName.equals("Digits") ||
+                   annotationName.equals("Future") ||
+                   annotationName.equals("Past") ||
+                   annotationName.equals("AssertTrue") ||
+                   annotationName.equals("AssertFalse");
+        }
+
+        /**
+         * 필드가 필수인지 확인
+         */
+        private boolean isFieldRequired(com.github.javaparser.ast.body.FieldDeclaration field) {
+            return field.getAnnotations().stream()
+                .anyMatch(ann -> {
+                    String name = ann.getNameAsString();
+                    return name.equals("NotNull") || 
+                           name.equals("NotBlank") || 
+                           name.equals("NotEmpty") ||
+                           name.equals("Required");
+                });
+        }
+
+        /**
+         * 필드 설명 추출
+         * - Javadoc, @Schema, @ApiModelProperty 어노테이션에서 설명 추출
+         */
+        private String extractFieldDescription(com.github.javaparser.ast.body.FieldDeclaration field) {
+            // 1. @Schema 어노테이션에서 description 추출
+            Optional<String> schemaDescription = field.getAnnotations().stream()
+                .filter(ann -> ann.getNameAsString().equals("Schema"))
+                .findFirst()
+                .map(ann -> extractAnnotationValue(ann, "description"));
+            
+            if (schemaDescription.isPresent() && !schemaDescription.get().isEmpty()) {
+                return schemaDescription.get();
+            }
+            
+            // 2. @ApiModelProperty 어노테이션에서 value 추출
+            Optional<String> apiModelDescription = field.getAnnotations().stream()
+                .filter(ann -> ann.getNameAsString().equals("ApiModelProperty"))
+                .findFirst()
+                .map(ann -> extractAnnotationValue(ann, "value"));
+            
+            if (apiModelDescription.isPresent() && !apiModelDescription.get().isEmpty()) {
+                return apiModelDescription.get();
+            }
+            
+            // 3. Javadoc에서 설명 추출
+            return field.getJavadoc()
+                .map(javadoc -> javadoc.getDescription().toText().trim())
+                .filter(desc -> !desc.isEmpty())
+                .orElse("");
+        }
+
+        /**
+         * 어노테이션에서 특정 속성값 추출
+         */
+        private String extractAnnotationValue(AnnotationExpr annotation, String attributeName) {
+            if (annotation.isNormalAnnotationExpr()) {
+                com.github.javaparser.ast.expr.NormalAnnotationExpr normalAnn = 
+                    annotation.asNormalAnnotationExpr();
+                return normalAnn.getPairs().stream()
+                    .filter(pair -> pair.getNameAsString().equals(attributeName))
+                    .findFirst()
+                    .map(pair -> pair.getValue().toString().replaceAll("\"", ""))
+                    .orElse("");
+            }
+            return "";
+        }
+
     }
 }
 

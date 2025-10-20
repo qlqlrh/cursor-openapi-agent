@@ -99,12 +99,20 @@ public class Main {
             mapper.enable(SerializationFeature.INDENT_OUTPUT); // 가독성을 위한 들여쓰기 활성화
             mapper.writeValue(new File(outputFile), data);
             
-            System.out.println("메타데이터 추출이 성공적으로 완료되었습니다!");
-            System.out.println(data.getControllers().size() + "개 컨트롤러에서 " + data.getTotalMethods() + "개 메소드를 찾았습니다");
-            if (data.getDtoClasses() != null && !data.getDtoClasses().isEmpty()) {
-                System.out.println(data.getDtoClasses().size() + "개 DTO 클래스를 찾았습니다");
+            // 처리된 파일이 있는지 확인
+            int totalItems = data.getControllers().size() + 
+                           (data.getDtoClasses() != null ? data.getDtoClasses().size() : 0);
+            
+            if (totalItems > 0) {
+                System.out.println("메타데이터 추출이 성공적으로 완료되었습니다!");
+                System.out.println(data.getControllers().size() + "개 컨트롤러에서 " + data.getTotalMethods() + "개 메소드를 찾았습니다");
+                if (data.getDtoClasses() != null && !data.getDtoClasses().isEmpty()) {
+                    System.out.println(data.getDtoClasses().size() + "개 DTO 클래스를 찾았습니다");
+                }
+                System.out.println("결과가 저장되었습니다: " + outputFile);
+            } else {
+                System.out.println("처리할 수 있는 파일이 없습니다. 파일 경로와 확장자를 확인해주세요.");
             }
-            System.out.println("결과가 저장되었습니다: " + outputFile);
             
         } catch (IOException e) {
             System.err.println("추출 중 오류 발생: " + e.getMessage());
