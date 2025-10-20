@@ -4,7 +4,6 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -20,7 +19,7 @@ public class EndpointsInfo {
     
     private List<DtoInfo> dtoClasses;
     
-    private LocalDateTime extractedAt;
+    private String extractedAt;
     
     private int totalMethods;
     
@@ -30,7 +29,7 @@ public class EndpointsInfo {
         return EndpointsInfo.builder()
             .controllers(controllers)
             .dtoClasses(List.of())
-            .extractedAt(LocalDateTime.now())
+            .extractedAt(java.time.LocalDateTime.now().toString())
             .totalMethods(controllers.stream()
                 .mapToInt(c -> c.getMethods() != null ? c.getMethods().size() : 0)
                 .sum())
@@ -43,7 +42,7 @@ public class EndpointsInfo {
         return EndpointsInfo.builder()
             .controllers(controllers)
             .dtoClasses(safeDtoClasses)
-            .extractedAt(LocalDateTime.now())
+            .extractedAt(java.time.LocalDateTime.now().toString())
             .totalMethods(controllers.stream()
                 .mapToInt(c -> c.getMethods() != null ? c.getMethods().size() : 0)
                 .sum())

@@ -36,6 +36,9 @@ public class ControllerExtractor {
     
     // 추출된 DTO 정보를 저장하는 리스트
     private final List<DtoInfo> dtoClasses;
+    
+    // 프로젝트 루트 경로 (파일 검색용)
+    private String projectRoot = System.getProperty("user.dir");
 
     /**
      * 지정된 소스 경로에서 Controller 정보를 추출
@@ -155,6 +158,10 @@ public class ControllerExtractor {
                 .collect(Collectors.toList());
             
             controller.setMethods(methods);
+            
+            // 컨트롤러에서 사용되는 DTO 클래스들 감지
+            detectRelatedDtos(n);
+            
             return controller;
         }
 
@@ -346,6 +353,292 @@ public class ControllerExtractor {
             return n.getThrownExceptions().stream()
                 .map(exception -> exception.toString())
                 .collect(Collectors.toList());
+        }
+
+        /**
+         * 컨트롤러에서 사용되는 DTO 클래스들 감지
+         * @RequestBody 파라미터와 반환 타입에서 DTO 클래스 추출
+         */
+        private void detectRelatedDtos(ClassOrInterfaceDeclaration controllerClass) {
+            // 모든 메서드에서 DTO 클래스 감지
+            controllerClass.getMethods().stream()
+                .filter(this::isMappingMethod)
+                .forEach(method -> {
+                    // @RequestBody 파라미터에서 DTO 감지
+                    detectDtoFromParameters(method);
+                    
+                    // 반환 타입에서 DTO 감지
+                    detectDtoFromReturnType(method);
+                });
+        }
+
+        /**
+         * 메서드 파라미터에서 DTO 클래스 감지
+         */
+        private void detectDtoFromParameters(MethodDeclaration method) {
+            method.getParameters().stream()
+                .filter(param -> param.getAnnotations().stream()
+                    .anyMatch(ann -> ann.getNameAsString().equals("RequestBody")))
+                .forEach(param -> {
+                    String typeName = param.getType().toString();
+                    String className = extractClassNameFromType(typeName);
+                    if (isDtoClassName(className)) {
+                        addDtoIfNotExists(className, method);
+                    }
+                });
+        }
+
+        /**
+         * 메서드 반환 타입에서 DTO 클래스 감지
+         */
+        private void detectDtoFromReturnType(MethodDeclaration method) {
+            String returnType = method.getType().toString();
+            
+            // 직접 반환 타입 확인
+            String className = extractClassNameFromType(returnType);
+            if (isDtoClassName(className)) {
+                addDtoIfNotExists(className, method);
+            }
+            
+            extractDtosFromGenericType(returnType, method);
+        }
+
+        /**
+         * 제네릭 타입에서 DTO 클래스들을 재귀적으로 추출
+         * 예: List<UserDto>, ResponseEntity<UserDto>, Optional<List<UserDto>> 등
+         */
+        private void extractDtosFromGenericType(String typeName, MethodDeclaration method) {
+            if (!typeName.contains("<") || !typeName.contains(">")) {
+                return;
+            }
+            
+            // 제네릭 타입들 추출
+            List<String> genericTypes = extractGenericTypes(typeName);
+            
+            for (String genericType : genericTypes) {
+                String className = extractClassNameFromType(genericType);
+                if (isDtoClassName(className)) {
+                    addDtoIfNotExists(className, method);
+                }
+                
+                // 중첩된 제네릭 타입도 재귀적으로 처리
+                extractDtosFromGenericType(genericType, method);
+            }
+        }
+
+        /**
+         * 제네릭 타입 문자열에서 모든 제네릭 타입들을 추출
+         * 예: "List<UserDto>" -> ["UserDto"]
+         * 예: "ResponseEntity<List<UserDto>>" -> ["List<UserDto>", "UserDto"]
+         */
+        private List<String> extractGenericTypes(String typeName) {
+            List<String> genericTypes = new ArrayList<>();
+            
+            // < 와 > 사이의 내용 추출
+            int start = typeName.indexOf('<');
+            int end = typeName.lastIndexOf('>');
+            
+            if (start != -1 && end != -1 && start < end) {
+                String content = typeName.substring(start + 1, end);
+                
+                // 쉼표로 구분된 타입들 처리
+                String[] types = content.split(",");
+                for (String type : types) {
+                    type = type.trim();
+                    if (!type.isEmpty()) {
+                        genericTypes.add(type);
+                    }
+                }
+            }
+            
+            return genericTypes;
+        }
+
+        /**
+         * 타입 문자열에서 클래스명 추출
+         */
+        private String extractClassNameFromType(String typeName) {
+            // 제네릭 타입 처리 (List<UserDto> -> UserDto)
+            if (typeName.contains("<") && typeName.contains(">")) {
+                int start = typeName.lastIndexOf('<') + 1;
+                int end = typeName.lastIndexOf('>');
+                if (start > 0 && end > start) {
+                    typeName = typeName.substring(start, end);
+                }
+            }
+            
+            // 패키지명 제거 (com.example.dto.UserDto -> UserDto)
+            if (typeName.contains(".")) {
+                return typeName.substring(typeName.lastIndexOf('.') + 1);
+            }
+            
+            return typeName;
+        }
+
+        /**
+         * 클래스명이 DTO 패턴인지 확인
+         */
+        private boolean isDtoClassName(String className) {
+            return className.endsWith("Dto") || 
+                   className.endsWith("DTO") || 
+                   className.endsWith("Req") || 
+                   className.endsWith("Res") || 
+                   className.endsWith("Request") || 
+                   className.endsWith("Response");
+        }
+
+        /**
+         * DTO 클래스가 이미 존재하지 않으면 추가
+         */
+        private void addDtoIfNotExists(String className, MethodDeclaration method) {
+            // 이미 존재하는지 확인
+            boolean exists = dtoClasses.stream()
+                .anyMatch(dto -> dto.getClassName().equals(className));
+            
+            if (!exists) {
+                // 패키지명 추출
+                String packageName = method.findCompilationUnit()
+                    .map(cu -> cu.getPackageDeclaration()
+                        .map(pkg -> pkg.getNameAsString())
+                        .orElse(""))
+                    .orElse("");
+                
+                // 파일 경로 찾기
+                String filePath = findDtoFile(className, packageName);
+                
+                // 패키지명으로 찾지 못했으면 클래스명만으로 검색
+                if (filePath == null || !Files.exists(Paths.get(filePath))) {
+                    filePath = findDtoFileByClassName(className);
+                }
+                
+                // 여전히 찾지 못했으면 추정 경로 사용
+                if (filePath == null) {
+                    String packagePath = packageName.replace('.', '/');
+                    filePath = "src/main/java/" + packagePath + "/" + className + ".java";
+                }
+                
+                // DTO 정보 생성
+                DtoInfo dto = DtoInfo.builder()
+                    .className(className)
+                    .packageName(packageName)
+                    .fields(new ArrayList<>())
+                    .existingAnnotations(new HashMap<>())
+                    .filePath(filePath)
+                    .build();
+                
+                dtoClasses.add(dto);
+            }
+        }
+
+        /**
+         * DTO 클래스 파일 경로 찾기
+         */
+        private String findDtoFile(String className, String packageName) {
+            // 1. 현재 프로젝트의 src/main/java에서 검색
+            String foundPath = searchInSourceDirectory(className, packageName);
+            if (foundPath != null) {
+                return foundPath;
+            }
+            
+            // 2. 패키지명 기반 추정 경로 (fallback)
+            String packagePath = packageName.replace('.', '/');
+            String estimatedPath = "src/main/java/" + packagePath + "/" + className + ".java";
+            
+            // 3. 추정 경로가 실제로 존재하는지 확인
+            if (Files.exists(Paths.get(estimatedPath))) {
+                return estimatedPath;
+            }
+            
+            // 4. 다른 가능한 위치들 검색
+            return searchInAlternativeLocations(className, packageName);
+        }
+
+        /**
+         * 클래스명으로 파일 검색 (패키지명 없이)
+         * 더 광범위한 검색을 수행
+         */
+        private String findDtoFileByClassName(String className) {
+            try {
+                // 프로젝트 전체에서 해당 클래스명의 파일 검색
+                Path projectRootPath = Paths.get(projectRoot);
+                return Files.walk(projectRootPath)
+                    .filter(path -> path.getFileName().toString().equals(className + ".java"))
+                    .findFirst()
+                    .map(Path::toString)
+                    .orElse(null);
+            } catch (IOException e) {
+                System.err.println("클래스명으로 파일 검색 중 오류: " + e.getMessage());
+                return null;
+            }
+        }
+
+        /**
+         * src/main/java 디렉토리에서 DTO 파일 검색
+         */
+        private String searchInSourceDirectory(String className, String packageName) {
+            try {
+                // 프로젝트 루트 기준으로 src/main/java 경로 생성
+                Path sourceDir = Paths.get(projectRoot, "src/main/java");
+                if (!Files.exists(sourceDir)) {
+                    // 상대 경로로도 시도
+                    sourceDir = Paths.get("src/main/java");
+                    if (!Files.exists(sourceDir)) {
+                        return null;
+                    }
+                }
+                
+                // 패키지 구조에 따라 검색
+                String packagePath = packageName.replace('.', '/');
+                Path packageDir = sourceDir.resolve(packagePath);
+                
+                if (Files.exists(packageDir)) {
+                    // 정확한 패키지 디렉토리에서 파일 검색
+                    return Files.walk(packageDir)
+                        .filter(path -> path.getFileName().toString().equals(className + ".java"))
+                        .findFirst()
+                        .map(Path::toString)
+                        .orElse(null);
+                }
+                
+                // 패키지 구조가 다를 수 있으므로 전체 검색
+                return Files.walk(sourceDir)
+                    .filter(path -> path.getFileName().toString().equals(className + ".java"))
+                    .findFirst()
+                    .map(Path::toString)
+                    .orElse(null);
+                    
+            } catch (IOException e) {
+                System.err.println("파일 검색 중 오류: " + e.getMessage());
+                return null;
+            }
+        }
+
+        /**
+         * 대체 위치들에서 DTO 파일 검색
+         */
+        private String searchInAlternativeLocations(String className, String packageName) {
+            String packagePath = packageName.replace('.', '/');
+            String[] alternativePaths = {
+                // 프로젝트 루트 기준 경로들
+                Paths.get(projectRoot, "src/main/java", packagePath, className + ".java").toString(),
+                Paths.get(projectRoot, "src", packagePath, className + ".java").toString(),
+                Paths.get(projectRoot, "java", packagePath, className + ".java").toString(),
+                Paths.get(projectRoot, "main/java", packagePath, className + ".java").toString(),
+                // 상대 경로들
+                "src/main/java/" + packagePath + "/" + className + ".java",
+                "src/" + packagePath + "/" + className + ".java",
+                "java/" + packagePath + "/" + className + ".java",
+                "main/java/" + packagePath + "/" + className + ".java"
+            };
+            
+            for (String path : alternativePaths) {
+                if (Files.exists(Paths.get(path))) {
+                    return path;
+                }
+            }
+            
+            // 마지막으로 추정 경로 반환 (존재하지 않더라도)
+            return "src/main/java/" + packagePath + "/" + className + ".java";
         }
     }
 
