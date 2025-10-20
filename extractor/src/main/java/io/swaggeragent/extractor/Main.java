@@ -84,7 +84,7 @@ public class Main {
         }
 
         try {
-            ControllerExtractor extractor = new ControllerExtractor(new com.github.javaparser.JavaParser(), new ArrayList<>());
+            ControllerExtractor extractor = new ControllerExtractor(new com.github.javaparser.JavaParser(), new ArrayList<>(), new ArrayList<>());
             EndpointsInfo data;
             
             if (filesMode) {
@@ -101,10 +101,9 @@ public class Main {
             
             System.out.println("메타데이터 추출이 성공적으로 완료되었습니다!");
             System.out.println(data.getControllers().size() + "개 컨트롤러에서 " + data.getTotalMethods() + "개 메소드를 찾았습니다");
-            // TODO: DTO 클래스 수 표시 (getDtoClasses 메서드 구현 후 활성화)
-            // if (filesMode && data.getDtoClasses() != null && !data.getDtoClasses().isEmpty()) {
-            //     System.out.println(data.getDtoClasses().size() + "개 DTO 클래스를 찾았습니다");
-            // }
+            if (data.getDtoClasses() != null && !data.getDtoClasses().isEmpty()) {
+                System.out.println(data.getDtoClasses().size() + "개 DTO 클래스를 찾았습니다");
+            }
             System.out.println("결과가 저장되었습니다: " + outputFile);
             
         } catch (IOException e) {

@@ -33,6 +33,9 @@ public class ControllerExtractor {
     
     // 추출된 Controller 정보를 저장하는 리스트
     private final List<ControllerInfo> controllers;
+    
+    // 추출된 DTO 정보를 저장하는 리스트
+    private final List<DtoInfo> dtoClasses;
 
     /**
      * 지정된 소스 경로에서 Controller 정보를 추출
@@ -46,7 +49,7 @@ public class ControllerExtractor {
             .filter(path -> path.toString().contains("controller"))  // 'controller'가 포함된 파일만 필터링
             .forEach(this::processFile);  // 각 파일을 처리
         
-        return EndpointsInfo.ofControllers(controllers);
+        return EndpointsInfo.ofControllersAndDtos(controllers, dtoClasses);
     }
 
     /**
@@ -62,7 +65,7 @@ public class ControllerExtractor {
             }
         }
         
-        return EndpointsInfo.ofControllers(controllers);
+        return EndpointsInfo.ofControllersAndDtos(controllers, dtoClasses);
     }
 
     /**
@@ -75,11 +78,32 @@ public class ControllerExtractor {
             CompilationUnit cu = javaParser.parse(filePath).getResult().orElse(null);
             if (cu == null) return;
 
-            // AST를 순회하며 Controller 정보 추출
-            cu.accept(new ControllerVisitor(filePath), null);
+            // 파일명으로 DTO 클래스인지 확인
+            if (isDtoFile(filePath)) {
+                cu.accept(new DtoVisitor(filePath), null);
+            } else {
+                // AST를 순회하며 Controller 정보 추출
+                cu.accept(new ControllerVisitor(filePath), null);
+            }
         } catch (Exception e) {
             System.err.println("Error processing file: " + filePath + " - " + e.getMessage());
         }
+    }
+
+    /**
+     * 파일명 패턴으로 DTO 클래스인지 확인
+     * 패턴: *Dto, *DTO, *Req, *Res,*Request, *Response
+     */
+    private boolean isDtoFile(Path filePath) {
+        String fileName = filePath.getFileName().toString();
+        String className = fileName.substring(0, fileName.lastIndexOf('.'));
+        
+        return className.endsWith("Dto") || 
+               className.endsWith("DTO") || 
+               className.endsWith("Req") || 
+               className.endsWith("Res") || 
+               className.endsWith("Request") || 
+               className.endsWith("Response");
     }
 
     /**
@@ -322,6 +346,105 @@ public class ControllerExtractor {
             return n.getThrownExceptions().stream()
                 .map(exception -> exception.toString())
                 .collect(Collectors.toList());
+        }
+    }
+
+    /**
+     * AST를 순회하며 DTO 클래스와 필드 정보 추출
+     */
+    private class DtoVisitor extends VoidVisitorAdapter<Void> {
+        private final Path filePath;
+
+        public DtoVisitor(Path filePath) {
+            this.filePath = filePath;
+        }
+
+        @Override
+        public void visit(ClassOrInterfaceDeclaration n, Void arg) {
+            if (isDtoClass(n)) {
+                DtoInfo dto = extractDto(n);
+                if (dto != null) {
+                    dtoClasses.add(dto);
+                }
+            }
+            // 하위 노드들도 방문
+            super.visit(n, arg);
+        }
+
+        /**
+         * DTO 클래스인지 확인 (파일명 패턴으로 이미 필터링됨)
+         */
+        private boolean isDtoClass(ClassOrInterfaceDeclaration n) {
+            // 파일명 패턴으로 이미 필터링되었으므로 true 반환
+            return true;
+        }
+
+        /**
+         * DTO 클래스에서 정보 추출
+         */
+        private DtoInfo extractDto(ClassOrInterfaceDeclaration n) {
+            // 기본 DTO 정보 추출
+            String className = n.getNameAsString();
+            String packageName = extractPackageName(n);
+            String filePathStr = filePath.toString();
+            
+            DtoInfo dto = DtoInfo.builder()
+                .className(className)
+                .packageName(packageName)
+                .filePath(filePathStr)
+                .build();
+            
+            // 필드 정보 추출
+            List<FieldInfo> fields = n.getFields().stream()
+                .map(this::extractField)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+            
+            dto.setFields(fields);
+            return dto;
+        }
+
+        /**
+         * 클래스 패키지명 추출
+         */
+        private String extractPackageName(ClassOrInterfaceDeclaration n) {
+            return n.findCompilationUnit()
+                .map(cu -> cu.getPackageDeclaration()
+                    .map(pkg -> pkg.getNameAsString())
+                    .orElse(""))
+                .orElse("");
+        }
+
+        /**
+         * DTO 필드에서 정보 추출
+         */
+        private FieldInfo extractField(com.github.javaparser.ast.body.FieldDeclaration field) {
+            if (field.getVariables().isEmpty()) {
+                return null;
+            }
+            
+            com.github.javaparser.ast.body.VariableDeclarator variable = field.getVariables().get(0);
+            String fieldName = variable.getNameAsString();
+            String fieldType = field.getElementType().toString();
+            
+            // 검증 어노테이션 추출
+            String[] validationAnnotations = field.getAnnotations().stream()
+                .map(AnnotationExpr::getNameAsString)
+                .filter(name -> name.equals("Valid") || name.equals("NotNull") || 
+                              name.equals("Size") || name.equals("NotBlank") ||
+                              name.equals("Email") || name.equals("Pattern"))
+                .toArray(String[]::new);
+            
+            // 필수 여부 확인
+            boolean required = field.getAnnotations().stream()
+                .anyMatch(ann -> ann.getNameAsString().equals("NotNull"));
+            
+            return FieldInfo.builder()
+                .name(fieldName)
+                .type(fieldType)
+                .validationAnnotations(validationAnnotations)
+                .required(required)
+                .build();
         }
     }
 }
