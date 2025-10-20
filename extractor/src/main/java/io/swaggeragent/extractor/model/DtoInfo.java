@@ -9,21 +9,21 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 컨트롤러 클래스 정보를 저장하는 모델 클래스
- * - 컨트롤러의 기본 정보와 메서드 목록 포함
+ * DTO 클래스 정보를 저장하는 모델 클래스
+ * - DTO 클래스의 기본 정보와 필드 정보 포함
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ControllerInfo {
+public class DtoInfo {
     private String className;
     
     private String packageName;
     
-    private String requestMapping;
-    
-    private List<MethodInfo> methods;
+    private List<FieldInfo> fields;
     
     private Map<String, Object> existingAnnotations;
+    
+    private String filePath;
 }
