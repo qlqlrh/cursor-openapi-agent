@@ -48,5 +48,5 @@ echo "📚 자세한 사용법은 cursor-openapi-agent/README.md를 참고하세
 echo ""
 echo "🔧 설정:"
 echo "   - 추출된 메타데이터는 cursor-openapi-agent/out/endpoints.json에 저장됩니다"
-echo "   - src/main/java 폴더의 컨트롤러를 자동으로 스캔합니다"
+echo "   - SpringBoot 프로젝트의 Controller와 DTO를 자동으로 스캔합니다"
 echo "   - 한국어 주석과 표준 HTTP 응답 코드가 자동 생성됩니다"
