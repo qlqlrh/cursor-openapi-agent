@@ -91,14 +91,19 @@ cursor-openapi-agent/
 ├── extractor/              # 컨트롤러 메타데이터 추출기 (JavaParser)
 │   ├── src/main/java/io/swaggeragent/extractor/
 │   │   ├── Main.java
-│   │   ├── ControllerExtractor.java
+│   │   ├── ControllerExtractor.java    # 메인 추출기 (리팩토링됨)
+│   │   ├── ControllerVisitor.java      # 컨트롤러 AST 방문자
+│   │   ├── DtoVisitor.java            # DTO AST 방문자
+│   │   ├── TypeParser.java            # 타입 파싱 유틸리티
 │   │   └── model/
 │   │       ├── ControllerInfo.java     # 컨트롤러 기본 정보
 │   │       ├── MethodInfo.java         # HTTP 메소드/경로/응답/예외
 │   │       ├── ParameterInfo.java      # 파라미터 이름/타입/위치/필수 여부
 │   │       ├── DtoInfo.java            # DTO 클래스 정보 및 경로
 │   │       ├── FieldInfo.java          # DTO 필드 타입/검증/필수 여부
-│   │       └── EndpointsInfo.java      # 추출 결과 루트(컨트롤러/DTO/통계)
+│   │       ├── EndpointsInfo.java      # 추출 결과 루트(컨트롤러/DTO/통계)
+│   │       ├── FileProcessResult.java  # 파일 처리 결과
+│   │       └── TypeParseResult.java    # 타입 파싱 결과
 │   └── build.gradle
 ├── out/                    # 출력 파일
 │   └── endpoints.json      # 추출된 메타데이터
