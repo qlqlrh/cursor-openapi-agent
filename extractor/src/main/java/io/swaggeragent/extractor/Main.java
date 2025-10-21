@@ -7,6 +7,7 @@ import io.swaggeragent.extractor.model.EndpointsInfo;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 
 /**
@@ -84,7 +85,7 @@ public class Main {
         }
 
         try {
-            ControllerExtractor extractor = new ControllerExtractor(new com.github.javaparser.JavaParser(), new ArrayList<>(), new ArrayList<>());
+            ControllerExtractor extractor = new ControllerExtractor(new com.github.javaparser.JavaParser(), new ArrayList<>(), new HashSet<>());
             EndpointsInfo data;
             
             if (filesMode) {

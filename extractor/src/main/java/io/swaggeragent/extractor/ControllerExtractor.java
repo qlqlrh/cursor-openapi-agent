@@ -31,11 +31,11 @@ public class ControllerExtractor {
     // Java 소스 코드 파싱을 위한 JavaParser
     private final JavaParser javaParser;
     
-    // 추출된 Controller 정보를 저장하는 리스트
+    // 추출된 Controller 정보 저장
     private final List<ControllerInfo> controllers;
     
-    // 추출된 DTO 정보를 저장하는 리스트
-    private final List<DtoInfo> dtoClasses;
+    // 추출된 DTO 정보를 저장
+    private final Set<DtoInfo> dtoClasses;
     
     // 프로젝트 루트 경로 (파일 검색용)
     private String projectRoot = System.getProperty("user.dir");
@@ -52,7 +52,7 @@ public class ControllerExtractor {
             .filter(path -> path.toString().contains("controller"))  // 'controller'가 포함된 파일만 필터링
             .forEach(this::processFile);  // 각 파일을 처리
         
-        return EndpointsInfo.ofControllersAndDtos(controllers, dtoClasses);
+        return EndpointsInfo.ofControllersAndDtos(controllers, new ArrayList<>(dtoClasses));
     }
 
     /**
@@ -89,7 +89,7 @@ public class ControllerExtractor {
             return EndpointsInfo.ofControllersAndDtos(new ArrayList<>(), new ArrayList<>());
         }
         
-        return EndpointsInfo.ofControllersAndDtos(controllers, dtoClasses);
+        return EndpointsInfo.ofControllersAndDtos(controllers, new ArrayList<>(dtoClasses));
     }
 
     /**
@@ -427,6 +427,7 @@ public class ControllerExtractor {
         /**
          * 컨트롤러에서 사용되는 DTO 클래스들 감지
          * @RequestBody 파라미터와 반환 타입에서 DTO 클래스 추출
+         * 단, 이미 처리된 DTO 파일은 제외
          */
         private void detectRelatedDtos(ClassOrInterfaceDeclaration controllerClass) {
             // 모든 메서드에서 DTO 클래스 감지
