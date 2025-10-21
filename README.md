@@ -122,13 +122,13 @@ cursor-openapi-agent/
 ### Extractor 빌드 오류
 ```bash
 cd cursor-openapi-agent/extractor
-gradle clean build
+./gradlew clean build
 ```
 
 ### `/swg-extract` 명령이 작동하지 않음
 - Cursor에서 명령어가 인식되지 않는 경우: `.cursor/commands/` 폴더가 프로젝트 루트에 있는지 확인
 - Java 17+ 설치 확인: `java -version`
-- Gradle 빌드 확인: `cd cursor-openapi-agent/extractor && gradle build`
+- Gradle 빌드 확인: `cd cursor-openapi-agent/extractor && ./gradlew build`
 
 ### `/swg-apply` 명령이 작동하지 않음
 - 먼저 `/swg-extract`를 실행했는지 확인

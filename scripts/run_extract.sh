@@ -89,7 +89,7 @@ mkdir -p "$(dirname "$OUTPUT_FILE")"
 if [ ! -f "$EXTRACTOR_JAR" ]; then
     echo "📦 추출기 빌드 중..."
     cd "$AGENT_ROOT/extractor"
-    gradle build -q
+    ./gradlew build -q
     cd "$PROJECT_ROOT"
 fi
 
