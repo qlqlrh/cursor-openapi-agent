@@ -1,6 +1,6 @@
-# ✨ Cursor OpenAPI Agent – 자동 OpenAPI/Swagger 주석 생성기 ✨
+# ✨ Cursor OpenAPI Agent
 
-Spring Boot 컨트롤러의 OpenAPI/Swagger 주석을 자동으로 생성하는 Cursor IDE 전용 도구입니다.  
+Spring Boot 프로젝트에서 **OpenAPI/Swagger 주석을 자동으로 생성**하는 Cursor IDE 전용 도구입니다.  
 JavaParser를 사용하여 코드를 분석하고, LLM을 통해 최적화된 한국어 주석을 생성/적용합니다.  
 
 
